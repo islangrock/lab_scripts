@@ -1,0 +1,250 @@
+---
+title: "week8_lab"
+output:
+  html_document
+---
+
+
+# Week 8 Lab : Sampling, Variance & Standard Error, & Confidence Intervals 
+
+This week's lab will look at the statistical inferences behind random sampling. We will examine how random sampling allows us to make representative samples of a given population, and how interval estimates improve on point estimates. We will conclude with a brief introduction of confidence intervals.  
+
+In this week's lab we will cover 
+
+  - review basics of ggplot and dplyr 
+  - using replicate() to take many samples 
+  - how to calculate Standard Error & Confidence Intervals 
+  
+  
+**DATA** This week's data comes from the US social security administration and is list of all baby names (*name*) given to more than 5 babies each *year* from 1880 to 2017 and the reported *sex* of the babies. *n* is the count of babies with a given name and *prop* is the proportion of that name among all of that year's babies. Both sex and names can change, so it's important to think of this data set as capturing what parents/guardians/those with naming abilities were thinking. 
+
+
+```{r}
+library(babynames) 
+library(tidyverse)
+library(randomizr)
+babynames<-babynames
+head(babynames, n=20)
+nrow(babynames)
+```
+
+What is the unit of analysis? 
+
+
+## Data Exploration 
+How many names-sex combos exist for the year 1950? for 2016? 
+How many names were given to both sexes in 1950 and 2016? 
+
+
+```{r}
+# number of name-sex combos: 
+fifties_babies<- babynames %>%
+  filter(year==1950)
+
+babies_2017 <- babynames %>%
+  filter(year==2017)
+
+nrow(fifties_babies)
+nrow(babies_2017)
+
+# number of names given to both male and female babies
+
+fifties_both<-fifties_babies$name[duplicated(fifties_babies$name)]
+both_2017 <-babies_2017$name[duplicated(babies_2017$name)]
+
+# view full information as table for duplicated names 
+babies_2017 %>%
+  filter(name %in% both_2017) %>%
+  arrange(name)
+```
+## Data cleaning 
+
+The data isn't quite in the form we want for our analysis, since it's aggregated by name and sex per year. We want each observation to be at the level of the individual baby. We'll continue to use our fifties_babies data frame for this. 
+
+```{r}
+# first we make a refernce variable that references name to row by index number 
+# (1 repeats however many times Linda appears, 2 repeats for the n associated with Mary, etc)
+
+expand <- rep(seq_len(nrow(fifties_babies)), fifties_babies[["n"]])
+babies_1950 <- fifties_babies[expand, -c(4:5)]
+
+summary(expand) # this helps see how expand is organized: goes from 1 to 10,302. 
+
+# check the length of this new df against the number of babies born in 1950
+sum(fifties_babies$n)
+
+# find proportions of male and female babies
+prop.table(table(babies_1950$sex))
+
+
+```
+
+## Random Sampling 
+
+We briefly saw random sampling in our last lab (focused on random assignment). If we want to understand a certain population, it is often impossible to contact every member of that population so we need to subset it in some way. Any arbitrary sample will not be representative of the population. Random sampling allows us to make a selection that is representative of the population as a whole. 
+
+
+```{r}
+# base R, using sample() 
+sample1<-sample(seq_len(nrow(babies_1950)), 10, FALSE)
+babies_1950[sample1,]
+
+# with randomizr
+babies_1950$sample1a <- complete_rs(nrow(babies_1950), n=10)
+babies_1950 %>%
+  filter(sample1a==1)
+```
+What proportion are male? female? 
+
+```{r}
+# sample 1
+ggplot(babies_1950[sample1,], aes(x=sex))+
+  geom_bar()
+# sample 1a 
+babies_1950 %>%
+  filter(sample1a==1) %>%
+  ggplot(aes(x=sex))+
+  geom_bar()
+```
+
+Is this *point estimate* or $\hat p$ a good estimate for the population as a whole? 
+
+```{r}
+many_small_samples <- replicate(15, {
+  prop.table(table(babies_1950[sample(seq_len(nrow(babies_1950)), 10, FALSE), "sex"]))})
+many_small_samples
+```
+
+## Standard Error 
+These $\hat p$ are not a great estimate of our actual population value, p (in this case the proportion of male and female babies). Instead of a point estimate we thus might be our interested in interval estimates that are a plausible range of values of p, given our sampling mechanism, sample size, and $\hat p$. We call this uncertainty standard error or SE. SE is a measure of how much our sample estimates ($\hat p$) vary across samples, if we repeatedly sample from the population. If we repeated the sampling process many times and calculated $\hat p$ each time, the standard deviation  of these estimates around the p would be the SE. We can create a margin of error using SE, that is the range we expect the population parameter (p) to be within given the sample estimate ($\hat p$) and the uncertainty due to sample error. Larger samples produce smaller SEs. 
+
+Let's look at how this works: 
+
+```{r}
+# sampling distribution - repeated samples of the same size from a population 
+
+sd <- replicate(1000, {
+  prop.table(table(babies_1950[sample.int(nrow(babies_1950), 10, FALSE), "sex"]))[1]
+  }) # the [1] means only female is selected 
+
+# examine distribution in the histogram 
+ggplot(, aes(x=sd)) +
+  geom_histogram(binwidth=.1) 
+
+# compare mean with the actual value in the population 
+mean(sd)
+prop.table(table(babies_1950$sex))
+
+# calculate much sampling variation in our 1000 samples by taking the standard deviation of our sampling distribution vector 
+sd(sd) 
+
+# what happens if we choose a larger sample size? n=50 
+
+sd_large <- replicate(1000, {
+  prop.table(table(babies_1950[sample.int(nrow(babies_1950), 50, FALSE), "sex"]))[1]
+  })
+
+ggplot(, aes(x=sd_large))+
+  geom_histogram(binwidth=.05)
+
+mean(sd_large)
+sd(sd_large) # should note a smaller SE than when our sample n = 10. 
+
+
+```
+
+
+When we have population data we can calculate the given SE for any sample size because we know the variance of the population variable and the size of the samples. The equation for SE is $\sqrt{\frac{Var(Y)}{n}}$. In our case Y is a binary variable (f/m) so it's easy to calculate: $Var(Y) = p(1-p)$. 
+
+```{r}
+var <- prod(prop.table(table(babies_1950$sex)))
+var # this is our variance of the population variable 
+
+# standard error for sample size n=10 
+sqrt(var/10)
+
+# standard error for sample size n=50 
+sqrt(var/50)
+```
+
+
+ Generally we don't have the ability to draw multiple samples or access to an entire population. Thus we need to calculate the variance in other ways. We use the sample element variance instead. This measure calculates the SE from just one sample, based on it's variance. 
+ 
+```{r}
+# base r, n=20
+var_a<-prod(prop.table(table(babies_1950[sample.int(nrow(babies_1950), 20, FALSE), "sex"])))
+
+# with sample 1a , n=10 
+
+sample1a<- babies_1950 %>%
+  filter(sample1a==1)
+
+var_b <- prod(prop.table(table(sample1a$sex)))
+
+
+var_a
+var_b
+
+SE_a <- sqrt(var_a/20)
+SE_b <- sqrt(var_b/10)
+
+SE_a
+SE_b
+
+```
+ 
+Given our SEs, we can now report a margin of error or confidence interval for our measure. We can calculate a 95% confidence interval by adding/subtracting 2 * SE from our point estimate. 
+
+```{r}
+# let's  calculate the CI for our sample1a 
+p1a<-mean(prop.table(table(sample1a$sex)))
+ci_lower <- p1a - (2*SE_b)
+ci_upper <- p1a + (2*SE_b)
+
+ci_lower 
+ci_upper
+```
+
+
+So we have a 95% confidence interval of .19 and .8. 
+
+Confidence Intervals DO NOT mean that there is a 95% chance that p is within our confidence interval. This is a frequent incorrect assumption. In fact since we know this population, there is a 100% chance that p is within our confidence interval. Confidence intervals should be interpreted as confidence in the sampling measure and as an indicator of the amount of variance we might expect for a given sample size. 
+
+
+## Block Randomization 
+
+Sometimes we want to maintain a certain proportion of a variable(s) in our sample because we know it's relevant or we want a specific composite demographic represented. We have to make some assertions about what features are important and how well they represent the population we are studying, but this can sometimes be more convincing than complete random selection. 
+
+As an example, let's say that we want a sample that pulls 5 baby names from each each year 1950-1999. I.e. we want each year to be represented equally. 
+
+```{r}
+fifty_years <-babynames %>%
+  filter(year >= 1950 & year<= 1999)
+
+# we can use the stratified random sampling function from randomizr 
+  # strata = variable that we want to select from (i.e. year) 
+  # n = how many to sample for each strata (Also option to select by proportion of total sample count if wanted)
+fifty_years$Sample <-strata_rs(strata=fifty_years$year, n=5)
+
+fifty_years %>%
+  filter(Sample ==1)
+
+# we can also use the random block assignment function from randomizr that was introduced in the last lab
+
+fifty_years$sample_block <- block_ra(blocks=fifty_years$year, m=5)
+
+fifty_years %>%
+  filter(sample_block ==1)
+
+```
+
+
+# On your own: 
+
+1) **REVIEW QUESTION** Choose any two names included in the data set. This could be your name, the name of a favorite character from a novel or movie, the name of a friend, or just random. Using the babynames data set and ggplot, plot the change in number of babies with these two names over time. Make sure to 1) include a plot title with the two names, 2) choose two different colors to represent  each name & 3) briefly (1-2 sentences) describe the overall trend you observe in the plot. 
+
+2) For 2010 find the proportion of all baby names that start with a vowel (y included, cause why not!). Find the population mean p and the true SE (based on population level variance). Then, take two samples of this dataset the first with n=10 and the next with n=250. Calculate the point estimate $\hat p$, the SE (based on sample estimate variance) and margin of error (confidence interval) for both samples. Interpret and describe your findings noting any differences between your two sample sizes. 
+
+
+
+

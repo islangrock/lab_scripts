@@ -1,0 +1,254 @@
+---
+title: "week5_lab"
+output: html_document
+---
+
+# Week 5 Lab : Scales, Internal Reliability, & Test-Retest relability 
+
+This week's lab focuses on an important feature of research (particularly survey research): the construction and analysis of scales made with a group of similar items. This lab uses a set of questions from the 2012 American National Election Survey to construct several different scales and measure their reliability and validity. If you would like to access the full survey you can make an account and download the files from the ANES data center website: https://electionstudies.org/data-center/. Additional information about the survey can be found on the website as well. 
+
+In this lab, we will cover: 
+
+- Review of if_else() commands and manipulating data with dplyr 
+- Create scales from a set of questions using multiple methods of recoding data
+- Testing internal reliability with Cronbach's alpha 
+- Using correlations to test predicitive (criterion) validity  
+
+## Install needed packages and import the Data 
+
+```{r}
+library(tidyverse)
+library(psych)
+library(car)
+
+anes<- read.csv("~/Desktop/methods_522/data/anes_2012.csv") # Remember to change path as needed
+```
+
+
+In the ANES data set, each row is one response and each column is one question. The questions and the scales used to answer them are given in the ANES codebook, and are paraphrased here for convenience. Negative (-) responses are because a respondent did not answer a particular question or selected did not know. We will ignore these in the lab. 
+
+
+## Example 1: Environmental Scale 
+
+Description of variables in the data (paraphrased from the ANES codebook)
+
+  - envir_drill [Increased Drilling: 1 = Favor, 2=Oppose, 3=Neither Favor or Oppose]
+  - envir_nuke [Number of Nuclear Power Plants: 1=More, 2=Fewer, 3=The Same]
+  - envir_gwarm [Are temps getting warmer: 1= Yes, 2= No]
+  - envir_gwgood [If temps are rising, is this bad or good?: 1=Good, 2=Bad, 3= Neither]
+  - envir_gwhow [What's causing gw: 1=Mostly human activity, 2=Mostly natural causes, 3= Equally human and natural causes]
+
+```{r}
+# make a new dataframe with just the variables of interest 
+
+head(anes)
+anes_envir <- anes %>%
+  select(envir_drill:envir_gwhow)
+head(anes_envir)
+```
+
+
+### Reordering Variables 
+
+The scales as currently written don't really tell us much. We thus want to reorder them so they all go in the same direction. Let's agree that 1= Most pro-environment, 3= most anti-environment and 2= will be all the middle categories (both/the same/neither). We've also get to set all instances where we have a negative response equal to 0. We could do this while recoding, but there are easier ways. 
+
+
+```{r}
+
+# set all negative values to NA. 
+anes_envir[anes_envir<0]<-NA 
+
+# use if_else statements to recode our variables. 
+envir <- anes_envir %>%
+  mutate(drill = if_else(envir_drill==1, 3, if_else(envir_drill==2, 1, 2)),
+         nuke = if_else(envir_nuke ==1, 3, if_else(envir_nuke==2, 1, 2)), 
+         gwarm =if_else(envir_gwarm == 2, 3, 1), 
+         gwgood = if_else(envir_gwgood == 1, 3, if_else(envir_gwgood==2, 1, 2)), 
+         gwhow= if_else(envir_gwhow==2, 3, if_else(envir_gwhow==3, 2, 1)))
+
+# let's check and make sure it worked
+envir %>%
+  count(envir_drill, drill)
+```
+
+
+### Testing Internal Reliability with Cronbach's alpha. 
+
+
+For our Environmental Scale, we  want to make sure we have an interally robust and reliable scale, ie. respondents consistently show they have a high or low level of environemental/global warming awareness. We can test this with cronbach's alpha, which is measure that looks at the inter-correlation of a number of items. In our environmental sample we have 5 items. 
+
+Cronbach's alpha ranges from 0 to 1. 0 would signfy a complete lack of inter-correlation, or the is no reliability across measures. A 1 would be 100% same across all items. Generally, an alpha of ~.7 and above is acceptable. 
+
+The equation for Cronbach's alpha is: $\frac{N\bar{c}}{\bar v +(N-1)\bar c}$ where 
+N= Number of items, $\bar c$ is the average inter-item covariance and $\bar v$ is the variance. 
+Including fewer items will lower the alpha, as will lower inter-item covariance.  
+
+We will use the alpha() function from the psych package (installed above)
+```{r}
+head(envir)
+alpha(envir[6:10])
+
+# what do you think will happen if we find the alpha for the two highest items (gwarm and gwgood)?
+alpha(envir[9:10])
+```
+
+Why do you think our alpha is so low? 
+
+
+## Another Example : Equalitarianism Scale 
+
+```{r}
+# separate our data 
+anes_egal <- anes%>%
+  select(egal_equal:egal_fewerprobs)
+
+```
+
+This is a set of questions measuring equalitarianism on a five point scale (1: Agree Strongly, 5: Disagree Strongly):
+
+ - egal_equal: Our society should do whatever is necessary to make sure that everyone has an equal opportunity to succeed.
+ - egal_toofar: We have gone too far in pushing equal rights in this country. (reverse worded)
+ - egal_bigprob: One of the big problems in this country is that we don’t give everyone an equal chance.
+ - egal_worryless: This country would be better off if we worried less about how equal people are. (reverse worded)
+ - egal_notbigprob: It is not really that big a problem if some people have more of a chance in life than others. (reverse worded)
+ - egal_fewerprobs: If people were treated more equally in this country we would have many fewer problems.
+
+Since they are all on the same scale we don't need to do the big recoding that we did for environmentalism. But we do need to account for the "reverse worded" questions marked above. Where strongly agreeing is less egalitarian than the other questions. We can do this in the keys command of the alpha function. 
+
+```{r}
+# note from above that items 2, 4, and 5 are reverse worded. We will set them equal to -1 in the function: 
+alpha(anes_egal, keys=c(1, -1, 1, -1, -1, 1))
+```
+
+What do you observe? Do you think this scale is more reliable than our environmental scale? 
+
+
+## Criterion validity/ Predicitve validity: 
+Does the measure predict what is was supposed to? 
+
+We'll examine this by comparing how two different types of political efficacy measures correlate with someone's stated political interest. The standard agree/disagree political efficacy question has been included on the ANES for a long time. Recently, it was written to avoid acquiesence response bias. The authors believed that this revised version of the question is a better way of understanding political efficacy. Compare the criterion validity of these scales (Standard vs. revised) by seeing which is a better correlate to a political interest variable.  
+
+
+Here are the statements from the ANES codebook: 
+
+**Political Interest:** 
+
+atttention: 1- Always, 5 - Never
+
+  - How often do you pay attention to what's going on in government and politics? 
+
+
+**STANDARD All are on an (1) Strongly Agree - (5) Strongly Disagree Scale **
+
+effic_complicstd: 
+
+  - Sometimes, politics and government seem so complicated that a person like me can't really understand what's going on. 
+  
+effic_undstd: (reverse worded)
+
+  - I feel that I have a pretty good understanding of the important political issues facing our country.'
+  
+effic_carestd: 
+
+  - Public officials don't care much what people like me think
+  
+effic_saystd:
+  - 'People like me don't have any say about what the government does
+
+**REVISED**
+
+effic_complirev: 1-Always, 5- Never 
+
+ - How often do politics and government seem so complicated that you can't really understand what's going on?
+ 
+effic_undrev: 1- Extremely Well, 5- Not well at all 
+
+  - How well do you understand the important political issues facing our country? 
+  
+effic_carerev: 1-A great Deal, 5- Not At All 
+
+  - How much do public officials care what people like you think?
+  
+effic_sayrev: 1- A great deal, 5-Not at all 
+
+  - How much can people like you affect what the government does?
+
+```{r}
+# Prepare our standard and revised efficacy scales 
+anes_effic <- anes %>%
+  select(contains(("effic")), interest_attention)%>%
+  select(effic_complicstd:effic_saystd, effic_complicrev:effic_sayrev, interest_attention)
+
+# first, let's get rid of all the negative values which mean someone didn't answer these questions or they didn't know 
+anes_effic[anes_effic<0]<-NA 
+
+## need to recode one set so both scale in the same direction. 
+# let's recode the std since we already have one (effic_undstd in the right direction) 
+# we also need to recode the complicated revised question which is reverse worded. 
+
+# Instead of writing inidividual if_else statements, we can set a recode rule using recode from the car package. 
+recode_rule <- c("1=5; 2=4; 3=3; 4=2; 5=1")
+
+# recode our three variables in question. 
+# (we need to call::recode in order to use the right version of the recode function)
+anes_effic$effic_complicstd_2 <- car::recode(anes_effic$effic_complicstd, recode_rule)
+anes_effic$effic_carestd_2 <- car::recode(anes_effic$effic_carestd, recode_rule)
+anes_effic$effic_saystd_2 <- car::recode(anes_effic$effic_saystd, recode_rule)
+anes_effic$effic_complicrev_2<- car::recode(anes_effic$effic_complicrev, recode_rule)
+
+# sum across rows to get each respondents total score for the scale. 
+anes_effic<-anes_effic %>%
+  mutate(total_std=rowSums(cbind(effic_complicstd_2, effic_undstd, effic_carestd_2, effic_saystd_2)),
+         total_rev=rowSums(cbind(effic_complicrev_2, effic_undrev, effic_carerev, effic_sayrev)))
+
+# now we look at the correlation of those scales. 
+cor(anes_effic$total_std, anes_effic$interest_attention, use="complete.obs", method="pearson")
+cor(anes_effic$total_rev, anes_effic$interest_attention, use="complete.obs")
+
+#what scale is more reliable? 
+```
+
+```{r}
+# Single Question Validity: what's the corellation between understanding and attention? 
+cor(anes_effic$effic_carestd_2, anes_effic$interest_attention, use="complete.obs")
+cor(anes_effic$effic_carerev, anes_effic$interest_attention, use="complete.obs")
+```
+
+
+# On Your Own: 
+
+  A. Build a scale measure from the Presidential Trait Questions (see below)
+  
+  B. Provide cronbach's alpha for the scale. Do you think this is a reliable scale? 
+  
+  C. Test the predictive validity of the scale by finding the correlation between the scale and the presidential approval question: presapp_job: Do you APPROVE (1) or DISAPPROVE (2) of the way Barack Obama is handling his job as President?
+
+
+**Presidential Trait Questions**
+
+Think about President Obama... On a scale of 1- Extremely Well to 5- No Well at all answer: 
+
+ -  ctrait_dpcmoral: In your opinion, does the phrase 'he is MORAL' describe him? 
+ -  ctrait_dpclead: In your opinion, does the phrase 'he PROVIDES STRONG LEADERSHIP' describe him?
+ -  ctrait_dpccare: In your opinion, does the phrase 'he REALLY CARES ABOUT PEOPLE LIKE YOU' describe him?
+ -  ctrait_dpcknow: In your opinion, does the phrase 'he is KNOWLEDGEABLE' describe him?
+ -  ctrait_dpcint: In your opinion, does the phrase 'he is INTELLIGENT' describe him?
+ -  ctrait_dpchonst: In your opinion, does the phrase 'he is HONEST' describe him?
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+
+
+
+
+
+
+

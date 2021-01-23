@@ -1,0 +1,304 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+
+# Week 6 Lab : Sample Size, Randomness, and Visualizing Experimental Results 
+
+This week's lab is about experimental design. Specifically we will look at the importance of sample size, selection, and assignment to good experimental work. We'll consider several examples about how selection into treatment and control conditions impact experimental results. Finally, we'll review how to visualize two different kinds of experimental results. 
+
+In this lab we will cover: 
+
+  - Visualizing Experimental Designs
+      - including: a review of ggplot techniques and introduction of the stat_summary function 
+  - Tools for Random Selection and Random Assignment. 
+  
+**DATA:** We will use a dataset that includes information about California Schools. This is a R learning data set. The data is collected from several from K-6 or K-8 schools in 1998-1999. It includes the following variables, all totaled and averaged at the district level: 
+
+  - district, school, and county 
+  - grades: Whether the school is K-6 or K-8 
+  - students: total number of students enrolled
+  - teachers: total number of teachers 
+  - calworks: number of students who qualify for an income assistance program
+  - lunch: number of students who qualify for reduced-price lunch 
+  - computer: number of computers in the school 
+  - expenditure: per student 
+  - income: average income (in 1,000s)
+  - english: percent of students learning English (English as a second language)
+  - read & math: average scores per subject (CA standardized test administered to 5th graders)
+
+### Load Packages and Data 
+```{r}
+library(AER) # this package includes our dataset which we'll load below. 
+library(tidyverse)
+library(randomizr)
+
+# load data 
+data("CASchools")
+head(CASchools, n=5)
+```
+
+Let's say that we want to run a field experiment in these CA districts. How would we decide what schools get the treatment and which are our controls? What impact does this decision have on the distribution of the school demographics? 
+
+### Non-Random Example: Self-Selection 
+*Review Tuesdays' Why Experimentation Lecture for another example*
+
+Imagine that we will allow our schools to self-select into treatment for an experiment on reading scores. For some reason the schools with the most teachers all select into our treatment. 
+
+```{r}
+median(CASchools$teachers)
+```
+
+There's a median of 48.5 teachers so we'll say schools with more than 50 teachers opted in. 
+
+```{r}
+CASchools<- CASchools %>%
+  mutate(treatment = if_else(teachers>50, 1, 0))
+
+table(CASchools$treatment)
+```
+
+We have 208 schools in our treatment group and 212 schools in our control group. 
+
+Now we run a series of correlations to see what this self selection does to our design: 
+
+```{r}
+# Teachers and Treatment 
+cor(CASchools$teachers, CASchools$treatment)
+
+# Reading and Teachers 
+cor(CASchools$read, CASchools$teachers)
+
+# Reading and Treatment 
+cor(CASchools$read, CASchools$treatment)
+```
+
+Despite no treatment having taken place we still find a correlation between our outcome (reading score) and our treatment and the covariates.  
+
+
+## Non-Random Example 2: 
+
+Even if self selection doesn't occur we can still find these correlations. Let's say the first 120 schools in our dataframe will receive treatment and second 120 do not. I.e. we (the researcher) assigned treatment by splitting our data in half. 
+
+```{r}
+# Assign treatment indicators to a new variable 
+CASchools$treatment2<-NA
+CASchools$treatment2[1:210]<-1
+CASchools$treatment2[211:420]<-0
+table(CASchools$treatment2)
+
+#what correlations persist? 
+# Teachers and Treatment 
+cor(CASchools$teachers, CASchools$treatment2)
+
+# Reading and Teachers 
+cor(CASchools$read, CASchools$teachers)
+
+# Reading and Treatment 
+cor(CASchools$read, CASchools$treatment2)
+
+```
+
+We still find correlations between the treatment and outcome measures and the teachers and treatment, even though our choice was seemingly arbitrary. 
+
+Looking at other characteristics -- Notice how these are widely different. 
+```{r}
+CASchools %>%
+  group_by(treatment2) %>%
+  summarize(math=mean(math), lunch=mean(lunch), computer=mean(computer))
+
+cor(CASchools$lunch, CASchools$treatment2)
+```
+
+
+### Random Assignment 
+
+Now let's see if we can remove these correlations among covariates by using random assignment. We'll use the randomizr package for this. 
+
+```{r}
+CASchools$treatmentR<- simple_ra(N=420) # randomly assign 420 observations either 0 or 1. 
+table(CASchools$treatmentR)
+```
+
+Correlations: 
+```{r}
+# Teachers and Treatment 
+cor(CASchools$teachers, CASchools$treatmentR)
+
+# Reading and Teachers 
+cor(CASchools$read, CASchools$teachers)
+
+# Reading and Treatment 
+cor(CASchools$read, CASchools$treatmentR)
+```
+
+
+Other variables: 
+```{r}
+CASchools %>%
+  group_by(treatmentR) %>%
+  summarize(math=mean(math), lunch=mean(lunch), computer=mean(computer)) 
+```
+
+We still find a very small correlation, even though we've done random assignment? Why? 
+
+
+### Effects of Sample Size 
+
+As sample size increases, randomization will bring the differences between our two groups closer to 0. Since we've been using the full data set of schools, we will thus look at what happens when we randomly select 100 schools, out of the total 420, to be in our study. What do you predict will occur with our randomization? With the differences between other characteristics? 
+
+```{r}
+#randomly select 100 schools 
+
+CASchools$selected <- complete_rs(N=420, n=30) # N = number of schools, n= exactly how many units to sample
+table(CASchools$selected)
+
+caschools <- CASchools %>%
+  select(-treatmentR, -treatment2, -treatment) %>%
+  filter(selected==1)
+
+table(caschools$selected)
+```
+
+Now that we have our random selection of 100 schools, we'll randomly assign each school to treatment and control and rerun the correlations
+
+```{r}
+caschools$treatmentR<- simple_ra(N=30)
+table(caschools$treatmentR)
+
+# Teachers and Treatment 
+cor(caschools$teachers, caschools$treatmentR)
+
+# Reading and Teachers 
+cor(caschools$read, caschools$teachers)
+
+# Reading and Treatment 
+cor(caschools$read, caschools$treatmentR)
+
+caschools %>%
+  group_by(treatmentR) %>%
+  summarize(math=mean(math), lunch=mean(lunch), computer=mean(computer)) 
+```
+
+
+How is this case (N=100) different than the earlier case (N=420)? 
+
+
+# Visualizing Experimental Results 
+
+## Control + Treatment Plots 
+```{r}
+
+# First let's make some good results! 
+
+CASchools_result <- CASchools %>%
+  mutate(read=if_else(treatmentR==1, read *1.1, read))
+  
+# boxplot 
+ggplot(CASchools_result, aes(y=read, group=as.character(treatmentR), fill=as.character(treatmentR)))+
+  geom_boxplot()+
+  scale_fill_manual(values=c("green", "yellow"),
+                    labels=c("Control", "Treatment"), 
+                    name="Group")+
+  theme(axis.text.x = element_blank(),# remove x axis numbers 
+        legend.position = "bottom") + # put legend on the bottom 
+  ggtitle("Experimental Results on Reading Scores")
+
+# scatter plot 
+ggplot(CASchools_result, aes(y=read, x=as.character(treatmentR)))+ 
+  geom_jitter()+
+  stat_summary(fun=mean, geom="point", aes(group=as.character(treatmentR), color="red", size=2))+
+  xlab("Treatment Group") +
+  theme(legend.position = "none") # get rid of the legend
+  
+```
+
+
+## 2x2 Factorial Design 
+
+Effect of homework and time spent in class on Math scores 
+
+2 x 2 Design: 
+1 extra hour classtime  - 1 hour of homework Math  
+1 extra hour classtime - No homework 
+no extra classtime - 1 hour of Homework 
+no extra classtime  - No homework 
+
+We'll call the 1 extra hour of classtime our treatmentR from above and then make a new variable (treatmentH) for the homework. 
+
+
+```{r}
+# First we randomly assign our groups 
+caschools_fact <- CASchools %>%
+  select(-treatment2, -treatment, -selected)
+
+table(caschools_fact$treatmentR)
+
+caschools_fact$treatmentH <- block_ra(blocks= caschools_fact$treatmentR)
+
+table(caschools_fact$treatmentH, caschools_fact$treatmentR) # row then column. 
+```
+
+
+### Visualizing the Null Case 
+```{r}
+
+ggplot(caschools_fact, aes(x=treatmentR, y=math, color=as.character(treatmentH)))+
+  geom_point()+
+  stat_summary(fun=mean, geom="line", aes(group=as.character(treatmentH)), size=2)
+
+# what happens when we remove geom_point from above? 
+
+ggplot(caschools_fact, aes(x=treatmentR, y=math, color=as.character(treatmentH)))+
+  stat_summary(fun=mean, geom="line", aes(group=as.character(treatmentH)), size=2)
+
+# fixing axis boundaries 
+ggplot(caschools_fact, aes(x=treatmentR, y=math, color=as.character(treatmentH)))+
+  stat_summary(fun=mean, 
+               geom="line", 
+               aes(group=as.character(treatmentH)), 
+               size=2)+
+  ylim(min(caschools_fact$math), max(caschools_fact$math))+
+  scale_color_manual(values=c("orange", "black"), 
+                     labels=c("control", "treatment"),
+                     name="treatmentH")
+
+```
+
+### Visualizing a main effect 
+
+```{r}
+caschools_fact<-caschools_fact %>%
+  mutate(math1= if_else(treatmentH==1 & treatmentR==1, math+15, math))
+
+ggplot(caschools_fact, aes(x=as.character(treatmentR), y=math1, color=as.character(treatmentH)))+
+  stat_summary(fun=mean, geom="line", aes(group=as.character(treatmentH)), size=2)+
+  ylim(min(caschools_fact$math), max(caschools_fact$math))+
+  scale_color_manual(values=c("orange", "black"), 
+                     labels=c("control", "treatment"),
+                     name="treatmentH")
+
+# inverse graph. Switch the treatments on axis and color 
+ggplot(caschools_fact, aes(x=as.character(treatmentH), y=math1, color=as.character(treatmentR)))+
+  stat_summary(fun=mean, geom="line", aes(group=as.character(treatmentR)), size=2)+
+  ylim(min(caschools_fact$math), max(caschools_fact$math))+
+  scale_color_manual(values=c("orange", "black"), 
+                     labels=c("control", "treatment"),
+                     name="treatmentR")+
+  xlab("TreatmentH")
+```
+
+
+# On your own: 
+
+**Question 1** (a) Assign a new treatment variable for the case where the schools with the most expenditure per student self select into the treatment. Roughly half of the schools should be in your treatment group and your control group.(b) Find the correlations between expenditure and treatment, expenditure and computers, and treatment and computers.(c) Make a table that includes the mean, median, min and max of each group's student count, teacher count, and lunch count. (hint: use the group_by() and summarize() functions we've discussed before!). (d) How do you interpret these results? Is this a well designed experiment? 
+ 
+
+**Question 2** Randomly assign all 420 schools into either treatment or control conditions. Build a scatter plot for control and treatment groups (use geom_jitter) based on number of computers. Add a blue dot to each group representing the mean. How do you interpret these results?  
+
+
+
+
+
